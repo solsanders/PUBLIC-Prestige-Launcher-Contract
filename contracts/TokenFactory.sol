@@ -7,10 +7,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract TokenFactory is Ownable, ReentrancyGuard {
-    uint256 public contractFee = 10 * 1e18; // Contract creation fee (fee will be updated on launch)
-    uint256 public revokeMintFee = 5 * 1e18; // Revoke Minting Fee (fee will be updated on launch)
-    uint256 public revokePausabilityFee = 5 * 1e18; // Revoke Pausable Fee (fee will be updated on launch)
-    uint256 public immutable MAX_INITIAL_SUPPLY = 1e30; // 1 Trillion Supply Limit
+    uint256 public contractFee = 10 * 1e18;
+    uint256 public revokeMintFee = 5 * 1e18;
+    uint256 public revokePausabilityFee = 5 * 1e18;
+    uint256 public immutable MAX_INITIAL_SUPPLY = 1e30;
     uint256 public constant ARGOCHAIN_CHAIN_ID = 1299;
 
     event TokenCreated(
@@ -33,65 +33,69 @@ contract TokenFactory is Ownable, ReentrancyGuard {
     constructor() Ownable(msg.sender) {}
 
     function createToken(
-        string memory name,
-        string memory symbol,
-        uint256 initialSupply,
-        uint8 customDecimals,
-        bool revokeMintAuthority,
-        bool revokePausability
-    ) external payable nonReentrant {
-        emit DebugLog("Entered createToken");
+    string memory name,
+    string memory symbol,
+    uint256 initialSupply,
+    uint8 customDecimals,
+    bool revokeMintingAuthority,
+    bool revokePausability
+) external payable nonReentrant {
+    emit DebugLog("Entered createToken");
 
-        require(block.chainid == ARGOCHAIN_CHAIN_ID, "This function can only be called on ArgoChain");
-        emit DebugLog("Passed chain ID check");
+    require(block.chainid == ARGOCHAIN_CHAIN_ID, "This function can only be called on ArgoChain");
+    emit DebugLog("Passed chain ID check");
 
-        uint256 requiredFee = contractFee;
-        if (revokeMintAuthority) {
-            requiredFee += revokeMintFee;
-        }
-        if (revokePausability) {
-            requiredFee += revokePausabilityFee;
-        }
-
-        require(msg.value >= requiredFee, "Insufficient fee amount");
-        emit DebugLog("Fee requirement met");
-
-        require(initialSupply <= MAX_INITIAL_SUPPLY, "Initial supply exceeds maximum allowed");
-        require(customDecimals >= 2 && customDecimals <= 18, "Decimals must be between 2 and 18");
-        emit DebugLog("Initial supply and decimals validated");
-
-        uint8 finalDecimals = customDecimals == 0 ? 18 : customDecimals;
-
-        ERC20Token newToken = new ERC20Token(
-            name,
-            symbol,
-            initialSupply,
-            finalDecimals,
-            msg.sender,
-            revokePausability
-        );
-        emit DebugLog("Token deployed");
-
-        if (revokeMintAuthority) {
-            try newToken.revokeMintingAuthority() {
-                emit DebugLog("Minting authority revoked successfully");
-            } catch {
-                emit DebugLog("Failed to revoke minting authority");
-            }
-        }
-
-        emit TokenCreated(
-            msg.sender,
-            address(newToken),
-            name,
-            symbol,
-            initialSupply,
-            finalDecimals,
-            revokeMintAuthority,
-            revokePausability
-        );
-        emit DebugLog("TokenCreated event emitted");
+    uint256 requiredFee = contractFee;
+    if (revokeMintingAuthority) {
+        requiredFee += revokeMintFee;
     }
+    if (revokePausability) {
+        requiredFee += revokePausabilityFee;
+    }
+
+    require(msg.value >= requiredFee, "Insufficient fee amount");
+    emit DebugLog("Fee requirement met");
+
+    require(initialSupply <= MAX_INITIAL_SUPPLY, "Initial supply exceeds maximum allowed");
+    require(customDecimals >= 2 && customDecimals <= 18, "Decimals must be between 2 and 18");
+    emit DebugLog("Initial supply and decimals validated");
+
+    uint8 finalDecimals = customDecimals == 0 ? 18 : customDecimals;
+
+    ERC20Token newToken = new ERC20Token(
+        name,
+        symbol,
+        initialSupply,
+        finalDecimals,
+        msg.sender,
+        revokeMintingAuthority,
+        revokePausability
+    );
+    emit DebugLog("Token deployed");
+
+    if (revokeMintingAuthority) {
+        emit DebugLog("Attempting to revoke minting authority");
+
+        try newToken.revokeMintingAuthority{gas: 200000}() {
+            emit DebugLog("Minting authority revoked successfully");
+        } catch {
+            emit DebugLog("Failed to revoke minting authority");
+        }
+    }
+
+    emit TokenCreated(
+        msg.sender,
+        address(newToken),
+        name,
+        symbol,
+        initialSupply,
+        finalDecimals,
+        revokeMintingAuthority,
+        revokePausability
+    );
+    emit DebugLog("TokenCreated event emitted");
+}
+
 
     function withdraw() external onlyOwner nonReentrant {
         uint256 contractBalance = address(this).balance;
@@ -128,12 +132,15 @@ contract ERC20Token is ERC20Pausable, Ownable {
     bool public pausabilityRevoked = false;
     uint8 private _customDecimals;
 
+    event MintingAuthorityRevoked();
+
     constructor(
         string memory name,
         string memory symbol,
         uint256 initialSupply,
         uint8 customDecimals,
         address tokenCreator,
+        bool _mintingRevoked,
         bool _revokePausability
     )
         ERC20(name, symbol)
@@ -141,6 +148,7 @@ contract ERC20Token is ERC20Pausable, Ownable {
     {
         _customDecimals = customDecimals;
         pausabilityRevoked = _revokePausability;
+        mintingRevoked = _mintingRevoked;
         _mint(tokenCreator, initialSupply);
     }
 
@@ -156,6 +164,7 @@ contract ERC20Token is ERC20Pausable, Ownable {
     function revokeMintingAuthority() external onlyOwner {
         require(!mintingRevoked, "Minting authority already revoked");
         mintingRevoked = true;
+        emit MintingAuthorityRevoked();
     }
 
     function pause() external onlyOwner {
